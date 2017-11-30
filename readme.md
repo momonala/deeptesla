@@ -18,7 +18,7 @@ The dataset consists of 10 videos (.MKV format) of about 90 seconds each, shot a
 
 ## Singular Value Decomposition 
 
-[Notebook here](singular_value_decomp.ipynb). 
+[Notebook with in depth implementation here](singular_value_decomp.ipynb). 
 
 Singular Value Decomposition is a linear algebra technique to factorize a matrix such that you can represent it with smaller number of component vectors. This compression algorithm is commonly used for dimensionality reduction in techniques such as Principal Component Analysis. The process consists of factorizing matrix A shown below:
 
@@ -66,28 +66,37 @@ I built a [python generator](test_generator.ipynb) to process the images and yei
 
 ## Training 
 
+[Notebook with training implementation here](train.ipynb)
+
 #### Experiment Design 
-My experiment was designed as follows: The dependent variable was the mean squared error validation loss, and the independent variables are applicaiton of SVD. 
+My experiment was designed as follows: The dependent variable was the mean squared error validation loss, and the independent variables are applicaiton of SVD. I let all other model parameters and tuning settings the same for comparing models. 
 
 #### Model 
 
-The model was a convlutional neural network with three convolutional layers and five fully connected layers. The convolutional layers each had a kernel size of (2, 2), RELU activation, L2 regularization (strength 0.1), and was followed by max-pooling with a size of (2, 2). The fully connected layers each had RELU activation and the amound of neurons per each layer was as follows [512, 512, 64, 16, 1]. All convolutional and fully connected layers were trained with a dropout probability of 0.5. Each image entering the network was cropped with 60 pixels from the top, to remove the sky from the dash-cam image.   
+The model was a convlutional neural network modeled off of [NVIDA's End-to-End Self Driving Car Paper](http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf). I used strided convolutions in the first three convolutional layers with a 22 stride and a 55 kernel and a non-strided convolution
+with a 33 kernel size in the last two convolutional layers. The convolutional layers each had RELU activation, L2 regularization (strength 0.1). The fully connected layers each had RELU activation and the amound of neurons per each layer was as follows [1164, 100, 50, 10, 1]. All convolutional and fully connected layers and RELU activation, except linear for the last, were trained with a dropout probability of 0.5. Each image entering the network was cropped with 60 pixels from the top, to remove the sky from the dash-cam image.   
+
+Orginally I trained using RGB images, and not converting to YUV like NVIDIA. However, this proved to create a fllor for the validation loss (MSE) around 9.0 when training on the control (without SVD), which was still quite high. I switched to YUC color space and achieved a validation control loss 
+
+Additionally, I did not augment the data in any way, while NVIDIA add random shifts and rotations to their training data. I elected not to do this since I could not properly reverse the random shifts to the steering wheel angle during inference. 
 
 #### Training 
 
-Prior to training on the entire dataset, I applied some sanity check [techniques recommended by Andrej Karpathy](https://cs231n.github.io/neural-networks-3/#gradcheck) (he is the director of AI at Tesla, after all...) and [this website](http://theorangeduck.com/page/neural-network-not-working). One important gradient check I first employed was to remove all regularizers (L2, augmentation, dropout), and tested on a small subset of 20 training images. This was to double check that the model loss would indeed converge to 0 (though overfit). 
+Prior to training on the entire dataset, I applied some sanity check [techniques recommended by Andrej Karpathy](https://cs231n.github.io/neural-networks-3/#gradcheck) (he is the director of AI at Tesla, after all...) and [this website](http://theorangeduck.com/page/neural-network-not-working). One important gradient check I first employed was to remove all regularizers(strength, dropout, kernel constraints, batch normalization), and tested on a small subset of 20 training images. This was to double check that the model loss would indeed converge to 0 (though overfit). 
 
 <img src="images/0_loss.png" width="600" alt="raw">
 
-From here I slowly increased the data size and monitored the loss evolution, while testing other hyperparameters that were not selected as dependent variables in the experiment (batch size, learning rate, regularization strength, dropout rate, model architecture). 
+From here, I could fine tune the model architecture. As mentioned, I started with the tried and tested NVIDIA model architeceture. For training, I slowly increased the data size and monitored the loss evolution, while testing other indepenent variable hyperparameters (batch size, learning rate, regularization strength, dropout rate, model architecture) -- basically everything except SVD application.  First, I tested the model with no regularization parameters. I settled on a batch size of 256 for training speed. From here, I iteratively added the regularization parameters, and slowly strengthened their effects, so I could oberve a noticeable, but not dominant contribution from any one of them. 
+
+At this point my model would run roughly the same if I tweaked any of the regularization hyperparamters, meaning the model was roughly agnostic to minor variations in any one of them - a good sign for generalization. Next up was to fine tune the learning rate which was arbitrarily set at the Keras Adam default of 0.001. During training on the existing model, I noticed that the validation loss would bottom out around 8.0, with minor flucuations of 0.2 in either direction, around epoch 11/20. This is roughly where the model improvement lost its 'inertia'. I considered it safe, therefore, to the lower the learning rate, allowing me to squeeze out further improvments, albeit more slowly, for the remaining 9 epochs. Halving the learn rate allowed the new bottom-out to occur at 7.3 validation loss. 
 
 For the final models, I settled on the following parameters: 
 
-    batch size: 
-    learning rate: 
-    L2 regularization strength: 
-    dropout rate: 
-    # epochs: 
+    batch size: 256
+    learning rate: 0.0005
+    L2 regularization strength: None 
+    dropout rate: 0.05
+    number epochs: 20
   
 <img src="images/model_architecture.png" width="600" alt="raw" />
  
