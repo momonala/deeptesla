@@ -44,7 +44,7 @@ We can visualize the image results of these three matrices by extracting one vec
 
 <img src="images/SVD_compare.png" width="1200" alt="raw" />
 
-This background removal looks analgous to the output of the 1st layer of [MIT's example network](http://selfdrivingcars.mit.edu/deeptesla/), hinting that SVD could be a good preprocessing method for offloading work from training the neural network. This pipeline of low rank approximation and background removal was applied for all video streams. To generate a single image per video stream, the low rank matrix was sorted along the time axis and the median frame vector was extracted, so that it did not contain outliers of any pixel of the image frame. A single low rank image was then saved for each video stream, which will be used for image preprocessing. 
+This background removal looks analgous to the output of the 1st layer of [MIT's example network](http://selfdrivingcars.mit.edu/deeptesla/), hinting that SVD could be a good preprocessing method for offloading work from training the neural network. The SVD low-rank approximation also highlights the great amount of redundancy from frame-to-frame, which is not immediately obvious from a human filter out conciously (kinda interesting, eh?). This pipeline of low rank approximation and background removal was applied for all video streams. To generate a single image per video stream, the low rank matrix was sorted along the time axis and the median frame vector was extracted, so that it did not contain outliers of any pixel of the image frame. A single low rank image was then saved for each video stream, which will be used for image preprocessing. 
 
 <img src="images/sorted_lowrank.png" width="800" alt="raw" />
 
@@ -73,12 +73,13 @@ My experiment was designed as follows: The dependent variable was the mean squar
 
 #### Model 
 
-The model was a convlutional neural network modeled off of [NVIDA's End-to-End Self Driving Car Paper](http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf). I used strided convolutions in the first three convolutional layers with a 22 stride and a 55 kernel and a non-strided convolution
-with a 33 kernel size in the last two convolutional layers. The convolutional layers each had RELU activation, L2 regularization (strength 0.1). The fully connected layers each had RELU activation and the amound of neurons per each layer was as follows [1164, 100, 50, 10, 1]. All convolutional and fully connected layers and RELU activation, except linear for the last, were trained with a dropout probability of 0.5. Each image entering the network was cropped with 60 pixels from the top, to remove the sky from the dash-cam image.   
+The model was a convlutional neural network modeled off of [NVIDA's End-to-End Self Driving Car Paper](http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf). I used strided convolutions in the first three convolutional layers with a 2x2 stride and a 5x5 kernel and a non-strided convolution with a 3x3 kernel size in the last two convolutional layers. The convolutional layers each had RELU activation, L2 regularization (strength 0.1). The fully connected layers each had RELU activation and the amound of neurons per each layer was as follows [1164, 100, 50, 10, 1]. All convolutional and fully connected layers and RELU activation, except linear for the last, were trained with a dropout probability of 0.5. Each image entering the network was cropped with 60 pixels from the top, to remove the sky from the dash-cam image.   
 
 Orginally I trained using RGB images, and not converting to YUV like NVIDIA. However, this proved to create a fllor for the validation loss (MSE) around 9.0 when training on the control (without SVD), which was still quite high. I switched to YUC color space and achieved a validation control loss 
 
 Additionally, I did not augment the data in any way, while NVIDIA add random shifts and rotations to their training data. I elected not to do this since I could not properly reverse the random shifts to the steering wheel angle during inference. 
+
+<img src="images/model_architecture.png" width="400" alt="raw" />
 
 #### Training 
 
@@ -86,21 +87,29 @@ Prior to training on the entire dataset, I applied some sanity check [techniques
 
 <img src="images/0_loss.png" width="600" alt="raw">
 
-From here, I could fine tune the model architecture. As mentioned, I started with the tried and tested NVIDIA model architeceture. For training, I slowly increased the data size and monitored the loss evolution, while testing other indepenent variable hyperparameters (batch size, learning rate, regularization strength, dropout rate, model architecture) -- basically everything except SVD application.  First, I tested the model with no regularization parameters. I settled on a batch size of 256 for training speed. From here, I iteratively added the regularization parameters, and slowly strengthened their effects, so I could oberve a noticeable, but not dominant contribution from any one of them. 
+From here, I could fine tune the model architecture. As mentioned, I started with the tried and tested NVIDIA model architeceture. For training, I slowly increased the data size and monitored the loss evolution, while testing other indepenent variable hyperparameters (batch size, learning rate, regularization strength, dropout rate, model architecture) -- basically everything except SVD application.  First, I tested the model with no regularization parameters. I settled on a batch size of 512 for training speed. From here, I iteratively added the regularization parameters, and slowly strengthened their effects, so I could oberve a noticeable, but not dominant contribution from any one of them. Increasing dropout seemed to have the strongest effect 
 
-At this point my model would run roughly the same if I tweaked any of the regularization hyperparamters, meaning the model was roughly agnostic to minor variations in any one of them - a good sign for generalization. Next up was to fine tune the learning rate which was arbitrarily set at the Keras Adam default of 0.001. During training on the existing model, I noticed that the validation loss would bottom out around 8.0, with minor flucuations of 0.2 in either direction, around epoch 11/20. This is roughly where the model improvement lost its 'inertia'. I considered it safe, therefore, to the lower the learning rate, allowing me to squeeze out further improvments, albeit more slowly, for the remaining 9 epochs. Halving the learn rate allowed the new bottom-out to occur at 7.3 validation loss. 
+At this point my model would run roughly the same if I tweaked any of the regularization hyperparamters, meaning the model was roughly agnostic to minor variations in any one of them - a good sign for generalization. Next up was to fine tune the learning rate which was arbitrarily set at the Keras Adam default of 0.001. After some fiddling by doubling and halving the default rate, I settled with the original 0.001 as it allowed the model to train for all 20 epochs, rather than bottomming out its training early or training too stochastically. 
 
 For the final models, I settled on the following parameters: 
 
-    batch size: 256
-    learning rate: 0.0005
+    batch size: 512
+    learning rate: 0.001
     L2 regularization strength: None 
-    dropout rate: 0.05
+    dropout rate: 0.40
     number epochs: 20
-  
-<img src="images/model_architecture.png" width="600" alt="raw" />
  
  
  ### Results 
  
+ The baseline model minimized validation loss to 0.690, measured from MSE, while the SVD model's lowest validation loss was 9.08. More evidently, the SVD model's loss exploded after several epochs, where as the standard model was more stabel. This could have occured from pixels not being clipped from subtracting the origninal image from the SVD, leading to unpredictable values outside of the standard 0-255 range. 
+ 
+ <img src="images/final_losses.png" width="1000" alt="raw" />
+ 
+ I was honestly quite disappointed with the results here, but this is sometimes the outcome of creative ideas and scientfic research - negative results. There are a few ideas I have for correcting the model, but I will pause here and hope to implement them later.
+ 
  ### Conclusion 
+ 
+ The results from this research suggest that SVD is not an appropriate preprocessing step for predictive driving using convolutional neural networks. The SVD model alone showed worse performance than the baseline model, and there is additional computational cost for running and updating an SVD in real life conditions. 
+ 
+ But hey, I learned a hell of a lot about Keras, model tuning, image generators, training on the cloud (Floyd), and performing the scientific method on deep learning! Onwards. 

@@ -49,7 +49,8 @@ class Generator:
         build a dict of names : image tensors'''
         
         self.low_rank_imgs = {}
-        img_list = glob.glob(self.directory + '/*low_rank.png')
+#         img_list = glob.glob(self.directory + '/*low_rank.png')
+        img_list = glob.glob('low_rank/*.png')
         
         for im in img_list: 
             #same name formatting 
@@ -86,7 +87,7 @@ class Generator:
         subtract from image array, in place for dict. 
         Apply weighed average of frame and low-rank matrix
         '''
-        low_rank = self.low_rank_imgs[img_data['name']]
+        low_rank = self.low_rank_imgs['low_rank/{}'.format(img_data['name'][:-6])]
         diff = 255- cv2.absdiff(img_data['array'] , low_rank)
         img_data['array']  = cv2.addWeighted(diff, 0.9, img_data['array'], 0.1, 1)
 
